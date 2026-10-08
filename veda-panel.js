@@ -50,8 +50,74 @@
         return new Response(JSON.stringify(wf), { status: res.status, statusText: res.statusText, headers: res.headers });
       } catch (e) { return res; }
     }
+    if (isHistoryList(url)) {
+      var hres = await baseFetch(input, init);
+      if (hres.ok) {
+        try {
+          var hd = await hres.clone().json();
+          lastHistory = Object.entries(hd || {}).reverse().slice(0, 50);
+          scheduleAnnotate();
+        } catch (e) {}
+      }
+      return hres;
+    }
     return baseFetch(input, init);
   };
+
+  // ---- History: show which Veda value each clip was generated with (read from the workflow that actually ran) ----
+  var lastHistory = null; // [[prompt_id, item], ...] in the same order as the history cards
+  var annotateTimer = null;
+  function isHistoryList(url) {
+    try { return new URL(url, location.href).pathname === '/history'; } catch (e) { return false; }
+  }
+  function pctText(v) {
+    var t = String(v == null ? '' : v).trim();
+    return /^\d+(\.\d+)?$/.test(t) ? t + '%' : t;
+  }
+  function vedaInfo(item) {
+    var wf = item && item.prompt && item.prompt[2];
+    if (!wf || typeof wf !== 'object') return null;
+    var veda = null, i2v = false;
+    Object.keys(wf).forEach(function (k) {
+      var n = wf[k];
+      if (!n || !n.class_type) return;
+      if (n.class_type === 'VedaSparseAttention') veda = n.inputs || {};
+      if (n.class_type === 'MiniMaxH3ImageToVideo') i2v = true;
+    });
+    if (veda) {
+      var g = pctText(veda.generated_sparsity), r = pctText(veda.reference_sparsity);
+      return { on: true, short: g === r ? 'Veda ' + g : 'Veda 生成' + g + ' / 参照' + r,
+        long: 'Veda: ON(生成部分 ' + g + '、参照部分 ' + r + ')' };
+    }
+    return i2v ? { on: false, short: 'Veda OFF', long: 'Veda: OFF(使っていない)' } : null;
+  }
+  function annotate() {
+    var root = document.getElementById('historyList');
+    if (!root || !lastHistory) return;
+    var cards = root.querySelectorAll('.history-card');
+    if (!cards.length || cards.length !== lastHistory.length) return;
+    Array.prototype.forEach.call(cards, function (card, i) {
+      if (card.getAttribute('data-vedamark')) return;
+      var ent = lastHistory[i], item = ent[1] || {};
+      var p3 = item && item.prompt && item.prompt[3];
+      var extra = (p3 && (p3.h3_mobile || (p3.extra_data && p3.extra_data.h3_mobile))) || (item.prompt && item.prompt.extra_data && item.prompt.extra_data.h3_mobile) || (item.extra_data && item.extra_data.h3_mobile) || {};
+      var b = card.querySelector('.history-content b');
+      if (!b || b.textContent !== String(extra.title || ent[0])) return; // not the same card: do nothing
+      card.setAttribute('data-vedamark', '1');
+      var info = vedaInfo(item);
+      if (!info) return;
+      var meta = card.querySelector('.meta');
+      if (meta) {
+        var chip = document.createElement('span');
+        chip.textContent = info.short;
+        chip.style.cssText = info.on ? 'color:#fff;background:#0a7d3b;border-radius:10px;padding:2px 8px;font-weight:600' : 'color:#bbb;border:1px solid #666;border-radius:10px;padding:1px 7px';
+        meta.appendChild(chip);
+      }
+      var det = card.querySelector('details > div');
+      if (det) { det.appendChild(document.createElement('br')); det.appendChild(document.createTextNode(info.long)); }
+    });
+  }
+  function scheduleAnnotate() { clearTimeout(annotateTimer); annotateTimer = setTimeout(annotate, 0); }
 
   function loadNodeInfo() {
     baseFetch(api('/object_info/VedaSparseAttention')).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
@@ -101,7 +167,7 @@
       '<div class="row"><span>スパース率</span><b id="vVal">' + st.pct + '%</b></div>' +
       '<div class="row"><input id="vRange" type="range" min="' + lo + '" max="' + hi + '" step="' + step + '" value="' + st.pct + '"></div>' +
       '<div class="row">' + [40, 70, 80, 90].map(function (n) { return '<button data-p="' + n + '">' + n + '</button>'; }).join('') + '</div>' +
-      '<div class="note">次の生成から反映されます(生成中のものは変わりません)。数値が大きいほど計算を多く省きます(速くなる代わりに、画質が落ちることがあります)。</div>';
+      '<div class="note">次の生成から反映されます(生成中のものは変わりません)。数値が大きいほど計算を多く省きます(速くなる代わりに、画質が落ちることがあります)。履歴の各動画に、使われた Veda の数値が出ます。</div>';
     panel.querySelector('#vOff').onclick = function () { st.on = false; save(); render(); };
     panel.querySelector('#vOn').onclick = function () { st.on = true; save(); render(); };
     panel.querySelector('#vRange').oninput = function (e) { st.pct = snap(Number(e.target.value)); panel.querySelector('#vVal').textContent = st.pct + '%'; save(); pill.textContent = label(); };
@@ -114,6 +180,8 @@
     pill.onclick = function () { panel.style.display = panel.style.display === 'none' ? 'block' : 'none'; render(); };
     document.body.appendChild(panel); document.body.appendChild(pill);
     render(); loadNodeInfo();
+    var hl = document.getElementById('historyList');
+    if (hl && window.MutationObserver) new MutationObserver(scheduleAnnotate).observe(hl, { childList: true });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();
