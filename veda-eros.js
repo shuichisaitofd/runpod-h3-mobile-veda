@@ -1,24 +1,31 @@
-/* H3 Veda test: 10Eros-Max INT8 switch. Adds a small "10Eros" button with download + ON/OFF.
-   When ON, the I2V workflow's model file name is swapped in the browser right after it is fetched. */
+/* H3 Veda test: 10Eros-Max INT8 switch. A small "10Eros" button: pick the model, download it, turn it on/off.
+   When a 10Eros model is selected, the I2V workflow's model file name is swapped in the browser right after it is fetched. */
 (function () {
   'use strict';
   var KEY = 'h3eros_state_v1';
-  var FILE = '10Eros_Max_H3_FL2VA-INT8-ConvRot.safetensors';
   var UNET_ID = '105:6';
-  var st = { on: true };
-  var info = null; // { status, downloaded, total, error } from the pod, or null
+  var SHORT = { beta7: 'beta7', v2: '旧' };
+  var st = { model: 'beta7' }; // 'off' | 'beta7' | 'v2'
+  var info = null; // { models: { key: {label, filename, status, downloaded, total, error} } } from the pod, or null
   var pill, panel, timer = null;
-  try { var s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) st.on = !!s.on; } catch (e) {}
+  try {
+    var s = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (s) { if (s.model) st.model = String(s.model); else if (s.on === false) st.model = 'off'; }
+  } catch (e) {}
   function save() { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} }
   function api(path) { return typeof window.apiUrl === 'function' ? window.apiUrl(path) : path; }
+  function models() { return (info && info.models) || {}; }
+  function isInstalled(k) { var m = models()[k]; return !!(m && m.status === 'installed'); }
+  function activeFile() { var m = models()[st.model]; return (m && m.status === 'installed') ? m.filename : null; }
 
   window.h3ErosApply = function (wf) {
-    if (!st.on || !wf || !installed()) return wf;
+    var file = activeFile();
+    if (!wf || st.model === 'off' || !file) return wf;
     var n = wf[UNET_ID];
     if (!n || n.class_type !== 'UNETLoader') {
       Object.keys(wf).forEach(function (k) { if (wf[k] && wf[k].class_type === 'UNETLoader') n = wf[k]; });
     }
-    if (n && n.inputs) n.inputs.unet_name = FILE;
+    if (n && n.inputs) n.inputs.unet_name = file;
     return wf;
   };
 
@@ -27,7 +34,7 @@
     var url = typeof input === 'string' ? input : (input && input.url) || '';
     if (/\/h3-mobile\/api\/workflow\/i2v(?:[?#]|$)/.test(url)) {
       var res = await prevFetch(input, init);
-      if (!res.ok || !st.on) return res;
+      if (!res.ok || st.model === 'off') return res;
       try {
         var wf = window.h3ErosApply(await res.clone().json());
         return new Response(JSON.stringify(wf), { status: res.status, statusText: res.statusText, headers: res.headers });
@@ -37,13 +44,17 @@
   };
 
   function gb(n) { return (n / 1073741824).toFixed(1); }
-  function label() { return !st.on ? '10Eros OFF' : (info && !installed() ? '10Eros 未導入' : '10Eros ON'); }
-  function installed() { return info && info.status === 'installed'; }
+  function label() {
+    if (st.model === 'off') return '10Eros OFF';
+    if (info && !isInstalled(st.model)) return '10Eros 未導入';
+    return '10Eros ' + (SHORT[st.model] || st.model);
+  }
+  function esc(v) { return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
   function refresh() {
     prevFetch(api('/h3-mobile/api/eros/status')).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
-      info = j; render();
-      var busy = j && (j.status === 'downloading' || j.status === 'verifying' || j.status === 'queued');
+      info = j && j.models ? j : null; render();
+      var busy = info && Object.keys(info.models).some(function (k) { return ['downloading', 'verifying', 'queued'].indexOf(info.models[k].status) >= 0; });
       clearTimeout(timer);
       if (busy && panel && panel.style.display !== 'none') timer = setTimeout(refresh, 3000);
     }).catch(function () { info = null; render(); });
@@ -53,36 +64,46 @@
     var s = document.createElement('style');
     s.textContent = '#erosPill{position:fixed;right:130px;bottom:76px;z-index:99999;padding:10px 14px;border-radius:22px;border:0;font:600 14px/1 system-ui,sans-serif;color:#fff;background:#555;box-shadow:0 2px 8px rgba(0,0,0,.4)}#erosPill.on{background:#8a4fd6}' +
       '#erosPanel{position:fixed;right:10px;bottom:128px;z-index:99999;width:min(320px,calc(100vw - 20px));padding:14px;border-radius:14px;background:#1c1c1e;color:#fff;font:14px/1.5 system-ui,sans-serif;box-shadow:0 4px 18px rgba(0,0,0,.6);display:none;max-height:calc(100vh - 150px);overflow-y:auto}' +
-      '#erosPanel h3{margin:0 0 8px;font-size:15px}#erosPanel .row{display:flex;gap:8px;align-items:center;margin:8px 0}' +
+      '#erosPanel h3{margin:0 0 8px;font-size:15px}#erosPanel .row{display:flex;gap:8px;align-items:center;margin:8px 0}#erosPanel .box{border:1px solid #444;border-radius:10px;padding:10px;margin:8px 0}' +
       '#erosPanel button{padding:10px 12px;border-radius:10px;border:1px solid #666;background:#2c2c2e;color:#fff;font-size:14px}#erosPanel button.sel{background:#8a4fd6;border-color:#8a4fd6}#erosPanel button:disabled{opacity:.4}' +
       '#erosPanel .note{font-size:12px;color:#bbb}#erosPanel .warn{font-size:13px;color:#ffb4a8}#erosPanel .bar{height:8px;border-radius:4px;background:#444;overflow:hidden}#erosPanel .bar>div{height:100%;background:#8a4fd6}';
     document.head.appendChild(s);
   }
 
+  function modelBox(k) {
+    var m = models()[k]; if (!m) return '';
+    var stat = m.status, body;
+    if (stat === 'installed') body = '<div>状態: <b>導入済み</b></div>';
+    else if (stat === 'downloading' || stat === 'queued' || stat === 'verifying') {
+      var pct = m.total ? Math.min(100, Math.round(m.downloaded / m.total * 100)) : 0;
+      body = '<div>状態: <b>' + (stat === 'verifying' ? '確認中…(数分かかります)' : 'ダウンロード中 ' + pct + '%') + '</b></div><div class="bar"><div style="width:' + (stat === 'verifying' ? 100 : pct) + '%"></div></div><div class="note">' + gb(m.downloaded) + ' / ' + gb(m.total || 0) + ' GB。この画面を開いたままで大丈夫です。</div>';
+    } else {
+      body = '<div>状態: <b>未導入</b>(約' + gb(m.total || 0) + 'GB)</div>' + (stat === 'error' ? '<div class="warn">失敗: ' + esc(m.error) + '</div>' : '') +
+        '<div class="row"><button data-dl="' + k + '">ダウンロード</button></div>';
+    }
+    return '<div class="box"><b>' + esc(m.label) + '</b>' + body +
+      '<div class="row"><button data-use="' + k + '" class="' + (st.model === k ? 'sel' : '') + '"' + (stat === 'installed' ? '' : ' disabled') + '>' + (st.model === k ? '使用中' : 'これを使う') + '</button></div></div>';
+  }
+
   function render() {
     if (!pill) return;
-    pill.textContent = label(); pill.className = st.on ? 'on' : '';
+    pill.textContent = label(); pill.className = st.model === 'off' ? '' : 'on';
     if (panel.style.display === 'none') return;
-    var stat = info ? info.status : null, body;
-    if (!info) body = '<div class="warn">Pod の状態を確認できません。Pod が起動してから開いてください。</div>';
-    else if (stat === 'installed') body = '<div>状態: <b>導入済み</b></div>';
-    else if (stat === 'downloading' || stat === 'queued' || stat === 'verifying') {
-      var pct = info.total ? Math.min(100, Math.round(info.downloaded / info.total * 100)) : 0;
-      body = '<div>状態: <b>' + (stat === 'verifying' ? '確認中…(数分かかります)' : 'ダウンロード中 ' + pct + '%') + '</b></div><div class="bar"><div style="width:' + (stat === 'verifying' ? 100 : pct) + '%"></div></div><div class="note">' + gb(info.downloaded) + ' / ' + gb(info.total || 0) + ' GB。この画面を開いたままで大丈夫です。</div>';
-    } else {
-      body = '<div>状態: <b>未導入</b>(約21GB、起動時に自動で始まります)</div>' + (stat === 'error' ? '<div class="warn">失敗: ' + String(info.error || '').replace(/</g, '&lt;') + '</div>' : '') +
-        '<div class="row"><button id="eDl">10Eros-Max INT8 をダウンロード</button></div>';
-    }
+    var body = info ? Object.keys(info.models).map(modelBox).join('') : '<div class="warn">Pod の状態を確認できません。Pod が起動してから開いてください。</div>';
     panel.innerHTML = '<h3>10Eros-Max INT8(画像から動画のみ)</h3>' + body +
-      '<div class="row"><button id="eOff" class="' + (st.on ? '' : 'sel') + '">OFF(通常モデル)</button><button id="eOn" class="' + (st.on ? 'sel' : '') + '"' + (installed() ? '' : ' disabled') + '>ON(10Eros)</button></div>' +
-      '<div class="note">Podの起動時に、10Eros-Maxを自動でダウンロードします。ONの間は10Eros-Maxで作ります(Vedaの設定もそのまま使えます)。このイメージには通常のH3の本体モデルを入れていないので、OFFにすると生成できません。</div>';
-    var dl = panel.querySelector('#eDl');
-    if (dl) dl.onclick = function () {
-      dl.disabled = true;
-      prevFetch(api('/h3-mobile/api/eros/prepare'), { method: 'POST' }).then(function () { refresh(); }).catch(function () { refresh(); });
-    };
-    panel.querySelector('#eOff').onclick = function () { st.on = false; save(); render(); };
-    panel.querySelector('#eOn').onclick = function () { if (installed()) { st.on = true; save(); render(); } };
+      '<div class="row"><button id="eOff" class="' + (st.model === 'off' ? 'sel' : '') + '">OFF(通常モデル)</button></div>' +
+      '<div class="note">beta7 は起動時に自動でダウンロードします。「旧」は必要なときだけダウンロードしてください。ONの間は選んだ10Eros-Maxで作ります(Vedaの設定もそのまま使えます)。このイメージには通常のH3の本体モデルを入れていないので、OFFにすると生成できません。</div>';
+    Array.prototype.forEach.call(panel.querySelectorAll('button[data-dl]'), function (b) {
+      b.onclick = function () {
+        b.disabled = true;
+        prevFetch(api('/h3-mobile/api/eros/prepare'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: b.getAttribute('data-dl') }) })
+          .then(function () { refresh(); }).catch(function () { refresh(); });
+      };
+    });
+    Array.prototype.forEach.call(panel.querySelectorAll('button[data-use]'), function (b) {
+      b.onclick = function () { if (isInstalled(b.getAttribute('data-use'))) { st.model = b.getAttribute('data-use'); save(); render(); } };
+    });
+    panel.querySelector('#eOff').onclick = function () { st.model = 'off'; save(); render(); };
   }
 
   function init() {
