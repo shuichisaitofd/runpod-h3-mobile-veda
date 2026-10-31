@@ -4,7 +4,7 @@
   'use strict';
   var KEY = 'h3eros_state_v1';
   var UNET_ID = '105:6';
-  var SHORT = { beta7: 'beta7', v2: '旧' };
+  var SHORT = { beta7: 'beta7' };
   var st = { model: 'beta7' }; // 'off' | 'beta7' | 'v2'
   var info = null; // { models: { key: {label, filename, status, downloaded, total, error} } } from the pod, or null
   var pill, panel, timer = null;
@@ -53,7 +53,9 @@
 
   function refresh() {
     prevFetch(api('/h3-mobile/api/eros/status')).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
-      info = j && j.models ? j : null; render();
+      info = j && j.models ? j : null;
+      if (info && st.model !== 'off' && !info.models[st.model]) { st.model = 'beta7'; save(); }
+      render();
       var busy = info && Object.keys(info.models).some(function (k) { return ['downloading', 'verifying', 'queued'].indexOf(info.models[k].status) >= 0; });
       clearTimeout(timer);
       if (busy && panel && panel.style.display !== 'none') timer = setTimeout(refresh, 3000);
@@ -92,7 +94,7 @@
     var body = info ? Object.keys(info.models).map(modelBox).join('') : '<div class="warn">Pod の状態を確認できません。Pod が起動してから開いてください。</div>';
     panel.innerHTML = '<h3>10Eros-Max INT8(画像から動画のみ)</h3>' + body +
       '<div class="row"><button id="eOff" class="' + (st.model === 'off' ? 'sel' : '') + '">OFF(通常モデル)</button></div>' +
-      '<div class="note">beta7 は起動時に自動でダウンロードします。「旧」は必要なときだけダウンロードしてください。ONの間は選んだ10Eros-Maxで作ります(Vedaの設定もそのまま使えます)。このイメージには通常のH3の本体モデルを入れていないので、OFFにすると生成できません。</div>';
+      '<div class="note">beta7 は起動時に自動でダウンロードします。ONの間は選んだ10Eros-Maxで作ります(Vedaの設定もそのまま使えます)。このイメージには通常のH3の本体モデルを入れていないので、OFFにすると生成できません。</div>';
     Array.prototype.forEach.call(panel.querySelectorAll('button[data-dl]'), function (b) {
       b.onclick = function () {
         b.disabled = true;
