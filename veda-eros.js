@@ -5,7 +5,7 @@
   var KEY = 'h3eros_state_v1';
   var FILE = '10Eros_Max_H3_FL2VA-INT8-ConvRot.safetensors';
   var UNET_ID = '105:6';
-  var st = { on: false };
+  var st = { on: true };
   var info = null; // { status, downloaded, total, error } from the pod, or null
   var pill, panel, timer = null;
   try { var s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s) st.on = !!s.on; } catch (e) {}
@@ -70,12 +70,12 @@
       var pct = info.total ? Math.min(100, Math.round(info.downloaded / info.total * 100)) : 0;
       body = '<div>状態: <b>' + (stat === 'verifying' ? '確認中…(数分かかります)' : 'ダウンロード中 ' + pct + '%') + '</b></div><div class="bar"><div style="width:' + (stat === 'verifying' ? 100 : pct) + '%"></div></div><div class="note">' + gb(info.downloaded) + ' / ' + gb(info.total || 0) + ' GB。この画面を開いたままで大丈夫です。</div>';
     } else {
-      body = '<div>状態: <b>未導入</b>(約21GB)</div>' + (stat === 'error' ? '<div class="warn">失敗: ' + String(info.error || '').replace(/</g, '&lt;') + '</div>' : '') +
+      body = '<div>状態: <b>未導入</b>(約21GB、起動時に自動で始まります)</div>' + (stat === 'error' ? '<div class="warn">失敗: ' + String(info.error || '').replace(/</g, '&lt;') + '</div>' : '') +
         '<div class="row"><button id="eDl">10Eros-Max INT8 をダウンロード</button></div>';
     }
     panel.innerHTML = '<h3>10Eros-Max INT8(画像から動画のみ)</h3>' + body +
       '<div class="row"><button id="eOff" class="' + (st.on ? '' : 'sel') + '">OFF(通常モデル)</button><button id="eOn" class="' + (st.on ? 'sel' : '') + '"' + (installed() ? '' : ' disabled') + '>ON(10Eros)</button></div>' +
-      '<div class="note">ONにすると、次の生成から10Eros-Maxを使います。Vedaの設定はそのまま使えます。通常のモデルに戻すときはOFFにしてください。履歴には、どちらで作ったかは出ません。</div>';
+      '<div class="note">Podの起動時に、10Eros-Maxを自動でダウンロードします。ONの間は10Eros-Maxで作ります(Vedaの設定もそのまま使えます)。このイメージには通常のH3の本体モデルを入れていないので、OFFにすると生成できません。</div>';
     var dl = panel.querySelector('#eDl');
     if (dl) dl.onclick = function () {
       dl.disabled = true;
