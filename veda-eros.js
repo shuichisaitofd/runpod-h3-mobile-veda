@@ -4,15 +4,24 @@
   'use strict';
   var KEY = 'h3eros_state_v1';
   var UNET_ID = '105:6';
-  var SHORT = { beta7: 'beta7' };
-  var st = { model: 'beta7' }; // 10Eros beta7 is always the model
+  var SHORT = { beta7: 'beta7', v2: '旧' };
+  var st = { model: 'beta7' }; // 'beta7' | 'v2'
   var info = null; // { models: { key: {label, filename, status, downloaded, total, error} } } from the pod, or null
   var pill, panel, timer = null;
-  try { localStorage.removeItem(KEY); } catch (e) {} // old on/off choice is no longer used: 10Eros beta7 is always the model
+  try {
+    var s = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (s && s.model && s.model !== 'off') st.model = String(s.model);
+  } catch (e) {}
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} }
   function api(path) { return typeof window.apiUrl === 'function' ? window.apiUrl(path) : path; }
   function models() { return (info && info.models) || {}; }
   function isInstalled(k) { var m = models()[k]; return !!(m && m.status === 'installed'); }
-  function activeFile() { var m = models()[st.model]; return (m && m.status === 'installed') ? m.filename : null; }
+  function activeFile() {
+    var m = models()[st.model];
+    if (m && m.status === 'installed') return m.filename;
+    var b = models().beta7; // chosen model is not ready: fall back to beta7 if it is ready
+    return (b && b.status === 'installed') ? b.filename : null;
+  }
 
   window.h3ErosApply = function (wf) {
     var file = activeFile();
@@ -49,6 +58,7 @@
   function refresh() {
     prevFetch(api('/h3-mobile/api/eros/status')).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
       info = j && j.models ? j : null;
+      if (info && !info.models[st.model]) { st.model = 'beta7'; save(); }
       render();
       var busy = info && Object.keys(info.models).some(function (k) { return ['downloading', 'verifying', 'queued'].indexOf(info.models[k].status) >= 0; });
       clearTimeout(timer);
@@ -77,7 +87,8 @@
       body = '<div>状態: <b>未導入</b>(約' + gb(m.total || 0) + 'GB)</div>' + (stat === 'error' ? '<div class="warn">失敗: ' + esc(m.error) + '</div>' : '') +
         '<div class="row"><button data-dl="' + k + '">ダウンロード</button></div>';
     }
-    return '<div class="box"><b>' + esc(m.label) + '</b>' + body + '</div>';
+    return '<div class="box"><b>' + esc(m.label) + '</b>' + body +
+      '<div class="row"><button data-use="' + k + '" class="' + (st.model === k ? 'sel' : '') + '"' + (stat === 'installed' ? '' : ' disabled') + '>' + (st.model === k ? '使用中' : 'これを使う') + '</button></div></div>';
   }
 
   function render() {
@@ -86,13 +97,16 @@
     if (panel.style.display === 'none') return;
     var body = info ? Object.keys(info.models).map(modelBox).join('') : '<div class="warn">Pod の状態を確認できません。Pod が起動してから開いてください。</div>';
     panel.innerHTML = '<h3>10Eros-Max INT8(画像から動画のみ)</h3>' + body +
-      '<div class="note">beta7 は起動時に自動でダウンロードします。導入済みになると、生成は10Eros-Max beta7で行います(Vedaの設定もそのまま使えます)。このイメージには通常のH3の本体モデルは入れていません。</div>';
+      '<div class="note">beta7 は起動時に自動でダウンロードします。旧版は、使いたいときだけダウンロードしてください。「これを使う」で選んだ方で生成します(Vedaの設定もそのまま使えます)。このイメージには通常のH3の本体モデルは入れていません。</div>';
     Array.prototype.forEach.call(panel.querySelectorAll('button[data-dl]'), function (b) {
       b.onclick = function () {
         b.disabled = true;
         prevFetch(api('/h3-mobile/api/eros/prepare'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: b.getAttribute('data-dl') }) })
           .then(function () { refresh(); }).catch(function () { refresh(); });
       };
+    });
+    Array.prototype.forEach.call(panel.querySelectorAll('button[data-use]'), function (b) {
+      b.onclick = function () { if (isInstalled(b.getAttribute('data-use'))) { st.model = b.getAttribute('data-use'); save(); render(); } };
     });
   }
 
