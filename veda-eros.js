@@ -5,14 +5,10 @@
   var KEY = 'h3eros_state_v1';
   var UNET_ID = '105:6';
   var SHORT = { beta7: 'beta7' };
-  var st = { model: 'beta7' }; // 'off' | 'beta7' | 'v2'
+  var st = { model: 'beta7' }; // 10Eros beta7 is always the model
   var info = null; // { models: { key: {label, filename, status, downloaded, total, error} } } from the pod, or null
   var pill, panel, timer = null;
-  try {
-    var s = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (s) { if (s.model) st.model = String(s.model); else if (s.on === false) st.model = 'off'; }
-  } catch (e) {}
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) {} }
+  try { localStorage.removeItem(KEY); } catch (e) {} // old on/off choice is no longer used: 10Eros beta7 is always the model
   function api(path) { return typeof window.apiUrl === 'function' ? window.apiUrl(path) : path; }
   function models() { return (info && info.models) || {}; }
   function isInstalled(k) { var m = models()[k]; return !!(m && m.status === 'installed'); }
@@ -20,7 +16,7 @@
 
   window.h3ErosApply = function (wf) {
     var file = activeFile();
-    if (!wf || st.model === 'off' || !file) return wf;
+    if (!wf || !file) return wf;
     var n = wf[UNET_ID];
     if (!n || n.class_type !== 'UNETLoader') {
       Object.keys(wf).forEach(function (k) { if (wf[k] && wf[k].class_type === 'UNETLoader') n = wf[k]; });
@@ -34,7 +30,7 @@
     var url = typeof input === 'string' ? input : (input && input.url) || '';
     if (/\/h3-mobile\/api\/workflow\/i2v(?:[?#]|$)/.test(url)) {
       var res = await prevFetch(input, init);
-      if (!res.ok || st.model === 'off') return res;
+      if (!res.ok) return res;
       try {
         var wf = window.h3ErosApply(await res.clone().json());
         return new Response(JSON.stringify(wf), { status: res.status, statusText: res.statusText, headers: res.headers });
@@ -45,7 +41,6 @@
 
   function gb(n) { return (n / 1073741824).toFixed(1); }
   function label() {
-    if (st.model === 'off') return '10Eros OFF';
     if (info && !isInstalled(st.model)) return '10Eros 未導入';
     return '10Eros ' + (SHORT[st.model] || st.model);
   }
@@ -54,7 +49,6 @@
   function refresh() {
     prevFetch(api('/h3-mobile/api/eros/status')).then(function (r) { return r.ok ? r.json() : null; }).then(function (j) {
       info = j && j.models ? j : null;
-      if (info && st.model !== 'off' && !info.models[st.model]) { st.model = 'beta7'; save(); }
       render();
       var busy = info && Object.keys(info.models).some(function (k) { return ['downloading', 'verifying', 'queued'].indexOf(info.models[k].status) >= 0; });
       clearTimeout(timer);
@@ -83,18 +77,16 @@
       body = '<div>状態: <b>未導入</b>(約' + gb(m.total || 0) + 'GB)</div>' + (stat === 'error' ? '<div class="warn">失敗: ' + esc(m.error) + '</div>' : '') +
         '<div class="row"><button data-dl="' + k + '">ダウンロード</button></div>';
     }
-    return '<div class="box"><b>' + esc(m.label) + '</b>' + body +
-      '<div class="row"><button data-use="' + k + '" class="' + (st.model === k ? 'sel' : '') + '"' + (stat === 'installed' ? '' : ' disabled') + '>' + (st.model === k ? '使用中' : 'これを使う') + '</button></div></div>';
+    return '<div class="box"><b>' + esc(m.label) + '</b>' + body + '</div>';
   }
 
   function render() {
     if (!pill) return;
-    pill.textContent = label(); pill.className = st.model === 'off' ? '' : 'on';
+    pill.textContent = label(); pill.className = (info && isInstalled(st.model)) ? 'on' : '';
     if (panel.style.display === 'none') return;
     var body = info ? Object.keys(info.models).map(modelBox).join('') : '<div class="warn">Pod の状態を確認できません。Pod が起動してから開いてください。</div>';
     panel.innerHTML = '<h3>10Eros-Max INT8(画像から動画のみ)</h3>' + body +
-      '<div class="row"><button id="eOff" class="' + (st.model === 'off' ? 'sel' : '') + '">OFF(通常モデル)</button></div>' +
-      '<div class="note">beta7 は起動時に自動でダウンロードします。ONの間は選んだ10Eros-Maxで作ります(Vedaの設定もそのまま使えます)。このイメージには通常のH3の本体モデルを入れていないので、OFFにすると生成できません。</div>';
+      '<div class="note">beta7 は起動時に自動でダウンロードします。導入済みになると、生成は10Eros-Max beta7で行います(Vedaの設定もそのまま使えます)。このイメージには通常のH3の本体モデルは入れていません。</div>';
     Array.prototype.forEach.call(panel.querySelectorAll('button[data-dl]'), function (b) {
       b.onclick = function () {
         b.disabled = true;
@@ -102,10 +94,6 @@
           .then(function () { refresh(); }).catch(function () { refresh(); });
       };
     });
-    Array.prototype.forEach.call(panel.querySelectorAll('button[data-use]'), function (b) {
-      b.onclick = function () { if (isInstalled(b.getAttribute('data-use'))) { st.model = b.getAttribute('data-use'); save(); render(); } };
-    });
-    panel.querySelector('#eOff').onclick = function () { st.model = 'off'; save(); render(); };
   }
 
   function init() {
